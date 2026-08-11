@@ -144,17 +144,23 @@ def simulate(ctrl, plant, x0, ref_of_t, T_end, dist_of_t=None):
     return np.arange(N + 1) * Ts, X, U, solve_ms
 
 
-def step_metrics(X, U, Ts, t0, target, axis, t1=None, band=0.02, tau_max=TAU_MAX):
+def step_metrics(X, U, Ts, t0, target, axis, t1=None, band=0.02, tau_max=TAU_MAX,
+                 budget="l2"):
     """Metrics for the step transient starting at t0 on one axis, sign-robust.
 
     Progress is measured as a fraction of the signed step, so the +10 deg roll and
     the -10 deg pitch targets are handled by the same code.
+
+    `budget` must match the controller's: it decides how torque is measured against
+    the limit, for both `peak_u` and the saturation detection. Under a box budget
+    ||u||_2 reaches tau_max*sqrt(2) with no axis saturated, so the l2 test would
+    report saturation almost everywhere.
     """
     k0, k1 = int(round(t0 / Ts)), None if t1 is None else int(round(t1 / Ts))
     y, u = X[k0:k1, axis], U[k0:k1]
     frac = (y - y[0]) / (target - y[0])           # 0 -> 1 progress, sign-independent
     outside = np.abs(frac - 1) > band             # last exit from the +/-2% band
-    un = np.linalg.norm(u, axis=1)
+    un = np.linalg.norm(u, axis=1) if budget == "l2" else np.abs(u).max(axis=1)
     sat = un > 0.999 * tau_max
     return dict(
         rise_ms=(np.argmax(frac >= 0.9) - np.argmax(frac >= 0.1)) * Ts * 1e3,
